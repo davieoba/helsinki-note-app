@@ -53,37 +53,57 @@ app.get('/api/notes', async (req, res) => {
 })
 
 app.get('/api/notes/:id', async (request, response) => {
-  const note = await Note.findById(request.params.id)
-
-  if (note) {
-    response.json(note)
-  } else {
-    response.status(404).end()
+  try {
+    const note = await Note.findById(request.params.id)
+    if (note) {
+      response.json(note)
+    } else {
+      response.status(404).end()
+    }
+  } catch (err) {
+    console.log(err)
+    response.status(400).send({ error: 'malformed id' })
   }
 })
 
-app.post('/api/notes', async (request, response) => {
-  const body = request.body
+app.post('/api/notes', async (request, response, next) => {
+  try {
+    console.log(request.body)
+    const body = request.body
 
-  if (!body.content) {
-    return response.status(400).json({
-      error: 'content missing'
+    const note = await Note.create({
+      content: body.content,
+      important: body.important || false,
     })
+
+    response.json(note)
+  } catch (err) {
+    next(err)
   }
-
-  const createNote = new Note({
-    content: body.content,
-    important: body.important || false,
-  })
-
-  const note = await createNote.save()
-
-  response.json(note)
 })
 
-app.delete('/api/notes/:id', async (request, response) => {
-  const note = await Note.findById(request.params.id)
-  response.status(204).end()
+app.patch('/api/notes/:id', async (request, response, next) => {
+  try {
+    const body = request.body
+
+    const note = await Note.findByIdAndUpdate(request.params.id, body, {
+      new: true,
+      runValidators: true,
+      context: 'query'
+    })
+    response.status(202).json({ note })
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.delete('/api/notes/:id', async (request, response, next) => {
+  try {
+    await Note.findByIdAndRemove(request.params.id)
+    response.status(204).end()
+  } catch (err) {
+    next(err)
+  }
 })
 
 const unknownEndpoint = (request, response) => {
@@ -91,6 +111,21 @@ const unknownEndpoint = (request, response) => {
 }
 
 app.use(unknownEndpoint)
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message)
+
+  if (error.name === 'CastError') {
+    return response.status(400).send({ error: 'malformatted id' })
+  } else if (error.name === 'ValidationError') {
+    return response.status(400).json({ error: error.message })
+  }
+
+  next(error)
+}
+
+// this has to be the last loaded middleware.
+app.use(errorHandler)
 const PORT = process.env.PORT || 3001
 app.listen(PORT)
 console.log(`Server running on port ${PORT}`)
